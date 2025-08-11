@@ -10,6 +10,7 @@ import nibabel as nib
 from skimage.filters import threshold_otsu
 from tqdm import tqdm
 
+
 #--------------------------------------------------------
 ## SEED 고정 (재현성 확보)
 SEED = 42
@@ -27,19 +28,15 @@ HCT = 0.34
 B0 = 3.0  # Tesla
 
 ## Hyperparameters
-EPOCHS = 50
+EPOCHS = 100
 BATCH_SIZE = 256 # pixel로 batch 설정
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 5e-3
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device : {device}")
 
 #--------------------------------------------------------
 #** PINN model
-import torch
-import torch.nn as nn
-import numpy as np
-
 class PINN(nn.Module):
     def __init__(self, gamma, delta_chi0, Hct, B0):
         super(PINN, self).__init__()
@@ -53,7 +50,9 @@ class PINN(nn.Module):
             nn.Tanh(),
             nn.Linear(64, 64),
             nn.Tanh(),
-            nn.Linear(64, 2)
+            nn.Linear(64, 32),
+            nn.Tanh(),
+            nn.Linear(32, 2)
         )
         self.sigmoid = nn.Sigmoid()
         self.softplus = nn.Softplus()
@@ -148,6 +147,7 @@ def load_all_patients(patients, TE, slice_idx=[10, 24, 36]):
 ## Training
 def train(model, dataloader, TE_data):
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0)
     criterion = nn.MSELoss()
     loss_history = []
 
@@ -170,13 +170,14 @@ def train(model, dataloader, TE_data):
             epoch_loss += loss.item()
 
             loop.set_postfix(loss=loss.item())
+        scheduler.step()
 
         avg_loss = epoch_loss / len(dataloader)
         loss_history.append(avg_loss)
 
         if (epoch + 1) % 10 == 0:
             print(f'Epoch [{epoch+1}/{EPOCHS}] Loss: {avg_loss:.6f}, '
-                  f'SO2 mean: {pred_SO2.mean().item():.4f}, CteFt mean: {pred_CteFt.mean().item():.4f}')
+                    f'SO2 mean: {pred_SO2.mean().item():.4f}, CteFt mean: {pred_CteFt.mean().item():.4f}')
 
     plt.plot(range(1, EPOCHS+1), loss_history)
     plt.xlabel("epochs"); plt.ylabel("loss"); plt.title("Train loss")
