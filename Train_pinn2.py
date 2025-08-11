@@ -31,9 +31,9 @@ HCT = 0.34
 B0 = 3.0  # Tesla
 
 ## Hyperparameters
-EPOCHS = 50
+EPOCHS = 100
 BATCH_SIZE = 256 # pixel로 batch 설정
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 5e-3
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device : {device}")
@@ -43,33 +43,41 @@ print(f"Using device : {device}")
 class PINN(nn.Module):
     def __init__(self, gamma, delta_chi0, Hct, B0):
         super(PINN, self).__init__()
-        # ─── Python float 으로 저장
-        self.gamma     = gamma
-        self.delta_chi0= delta_chi0
-        self.Hct       = Hct
-        self.B0        = B0
+        self.gamma = torch.tensor(gamma)
+        self.delta_chi0 = torch.tensor(delta_chi0)
+        self.Hct = torch.tensor(Hct)
+        self.B0 = torch.tensor(B0)
 
         self.layers = nn.Sequential(
-            nn.Linear(2, 64), # R2, Bvf
+            nn.Linear(2, 64),
             nn.Tanh(),
             nn.Linear(64, 64),
             nn.Tanh(),
-            nn.Linear(64, 2)   # [SO2, CteFt]
+            nn.Linear(64, 32),
+            nn.Tanh(),
+            nn.Linear(32, 2)
         )
         self.sigmoid = nn.Sigmoid()
         self.softplus = nn.Softplus()
 
+        # SO2 범위
+        self.so2_L = 0.40
+        self.so2_U = 0.85
+
     def forward(self, R2, BVf, TE):
         x = torch.cat([R2, BVf], dim=1)
-        raw = self.layers(x)
-        SO2   = self.sigmoid(raw[:,0:1])
-        CteFt = self.softplus(raw[:,1:2])
+        params_raw = self.layers(x)
+
+        # scaled sigmoid: [0.40, 0.85]
+        SO2 = self.so2_L + (self.so2_U - self.so2_L) * self.sigmoid(params_raw[:, 0:1])
+        CteFt = self.softplus(params_raw[:, 1:2])
 
         if TE.ndim == 1:
             TE = TE.unsqueeze(0).repeat(R2.shape[0], 1)
 
-        exp_term = -R2*TE - BVf*self.gamma*(4/3)*np.pi*self.delta_chi0*self.Hct*(1-SO2)*self.B0*TE
-        pred_s = CteFt * torch.exp(exp_term)
+        exponent = -R2 * TE - BVf * self.gamma * (4/3) * np.pi * self.delta_chi0 * \
+                   self.Hct * (1 - SO2) * self.B0 * TE
+        pred_s = CteFt * torch.exp(exponent)
         return pred_s, SO2, CteFt
 
 #---------------------------------------------------------
@@ -127,6 +135,7 @@ def load_all_patients(patients, TE, slice_idx=[10,24,36]):
 ## Training
 def train(model, dataloader, TE):
     opt  = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=50, eta_min=0)
     crit = nn.MSELoss()
     hist = []
 
@@ -144,6 +153,8 @@ def train(model, dataloader, TE):
             loss.backward()
             opt.step()
             total += loss.item()
+        scheduler.step()
+
         avg = total / len(dataloader)
         hist.append(avg)
         if ep % 10 == 0:
