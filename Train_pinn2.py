@@ -81,7 +81,7 @@ class PINN(nn.Module):
         return pred_s, SO2, CteFt
 
 #---------------------------------------------------------
-# masking image
+# masking image -> main modification
 def otsu_mask(image_4d):
     image = np.mean(image_4d, axis=3)
     mask  = np.zeros_like(image, dtype=bool)
