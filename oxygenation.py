@@ -29,7 +29,7 @@ B0 = 3.0  # Tesla
 
 ## Hyperparameters
 EPOCHS = 100
-BATCH_SIZE = 256 # pixel로 batch 설정
+BATCH_SIZE = 512 # pixel로 batch 설정
 LEARNING_RATE = 5e-3
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -148,7 +148,7 @@ def load_all_patients(patients, TE, slice_idx=[10, 24, 36]):
 def train(model, dataloader, TE_data):
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0)
-    criterion = nn.MSELoss()
+    criterion = nn.MSELoss() 
     loss_history = []
 
     for epoch in range(EPOCHS):
