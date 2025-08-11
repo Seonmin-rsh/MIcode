@@ -7,6 +7,9 @@ import os
 import random
 import nibabel as nib
 from skimage.filters import threshold_otsu
+from scipy.ndimage import binary_erosion, binary_dilation, binary_fill_holes
+from scipy.ndimage import gaussian_filter
+from skimage import morphology
 from tqdm import tqdm
 from sklearn.preprocessing import LabelEncoder
 import pickle
@@ -82,13 +85,51 @@ class PINN(nn.Module):
 
 #---------------------------------------------------------
 # masking image -> main modification
-def otsu_mask(image_4d):
-    image = np.mean(image_4d, axis=3)
-    mask  = np.zeros_like(image, dtype=bool)
-    for s in range(image.shape[2]):
-        thr = threshold_otsu(image[:,:,s])
-        mask[:,:,s] = image[:,:,s] > thr
-    return mask
+# def otsu_mask(image_4d):
+#     image = np.mean(image_4d, axis=3)
+#     mask  = np.zeros_like(image, dtype=bool)
+#     for s in range(image.shape[2]):
+#         thr = threshold_otsu(image[:,:,s])
+#         mask[:,:,s] = image[:,:,s] > thr
+#     return mask
+
+def create_mask(original_signal, slice_idx=[10,24,36], erosion_iterations = 1, dilation_iterations = 1):
+    signal = original_signal[:,:,slice_idx,0:7]
+    image = np.mean(signal, axis=3)
+    brain_mask = np.zeros_like(image)
+    for i, slice_idx in enumerate(slice_idx):
+        if image.max() > image.min():
+            normalized_image = (image - image.min()) / (image.max() - image.min())
+        else:
+            normalized_image = image
+    
+        smoothed = gaussian_filter(normalized_image, sigma = 5)
+
+        otsu_threshold = threshold_otsu(smoothed)
+        
+        binary_mask = smoothed > otsu_threshold
+        binary_mask = binary_erosion(binary_mask, iterations=erosion_iterations)
+        binary_mask = binary_fill_holes(binary_mask)
+        binary_mask = binary_dilation(binary_mask, iterations=dilation_iterations)
+        binary_mask = keep_largest_component(binary_mask)
+
+        brain_mask[:, :, i] = binary_mask
+
+    return brain_mask
+
+def keep_largest_component(binary_mask):
+    labeled_mask = morphology.label(binary_mask)
+    
+    if labeled_mask.max() == 0:
+        return binary_mask
+    
+    component_sizes = np.bincount(labeled_mask.ravel())
+    component_sizes[0] = 0  # 배경 제외
+    
+    largest_component = component_sizes.argmax()
+    final_mask = (labeled_mask == largest_component)
+    
+    return final_mask
 
 #--------------------------------------------------------
 ## collect patients
@@ -115,7 +156,7 @@ def load_all_patients(patients, TE, slice_idx=[10,24,36]):
         r2   = nib.load(paths["R2"]).get_fdata()
         bvf  = nib.load(paths["Bvf"]).get_fdata()
         sig4 = nib.load(paths["pre7meGRE"]).get_fdata()[..., slice_idx, 0:7]
-        mask = otsu_mask(sig4)
+        mask = create_mask(sig4)
 
         R2m = r2[mask].reshape(-1,1)
         BVfm= bvf[mask].reshape(-1,1)
