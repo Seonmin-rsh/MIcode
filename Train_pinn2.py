@@ -93,7 +93,7 @@ class PINN(nn.Module):
 #         mask[:,:,s] = image[:,:,s] > thr
 #     return mask
 
-def create_mask(original_signal, slice_idx=[10,24,36], erosion_iterations = 1, dilation_iterations = 1):
+def create_mask(original_signal, slice_idx=[10,24,36], erosion_iterations = 2, dilation_iterations = 2):
     signal = original_signal[:,:,slice_idx,0:7]
     image = np.mean(signal, axis=3)
     brain_mask = np.zeros_like(image)
@@ -103,7 +103,7 @@ def create_mask(original_signal, slice_idx=[10,24,36], erosion_iterations = 1, d
         else:
             normalized_image = image
     
-        smoothed = gaussian_filter(normalized_image, sigma = 5)
+        smoothed = gaussian_filter(normalized_image, sigma = 1)
 
         otsu_threshold = threshold_otsu(smoothed)
         
@@ -156,7 +156,7 @@ def load_all_patients(patients, TE, slice_idx=[10,24,36]):
         r2   = nib.load(paths["R2"]).get_fdata()
         bvf  = nib.load(paths["Bvf"]).get_fdata()
         sig4 = nib.load(paths["pre7meGRE"]).get_fdata()[..., slice_idx, 0:7]
-        mask = create_mask(sig4)
+        mask = create_mask(sig4, slice_idx=[10,24,36], erosion_iterations = 2, dilation_iterations = 2)
 
         R2m = r2[mask].reshape(-1,1)
         BVfm= bvf[mask].reshape(-1,1)
