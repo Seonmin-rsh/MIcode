@@ -25,50 +25,54 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"using device: {device}")
 
 ## LBFGS or Adam
-def compute_so2_map(sig, R2_map, Bvf_map, TE):
+def compute_so2_map(sig, R2_map, Bvf_map, TE): # masking 된 image
+    signal = sig[:,:,:,0:7]
+    H, W, S, E = signal.shape
+    TE_tensor = torch.tensor(TE, dtype=torch.float32).to(device) / 1000 # second
 
-    signal = np.mean(sig, axis=3)
-    H, W ,S = signal.shape #(512,512,3)
-    TE = torch.tensor(TE, dtype=torch.float32).to(device) / 1000 # second
+    const = torch.tensor(gamma * (4 / 3) * np.pi * delta_chi0 * Hct * B0).to(device) 
 
-    const = gamma * (4 / 3) * np.pi * delta_chi0 * Hct * B0
-
-    so2_map = torch.zeros((H, W, S), dtype=torch.float32)
-    cteFt_map = torch.zeros((H, W, S), dtype=torch.float32)
+    so2_map = np.full((H,W,S), np.nan, dtype = np.float32)
+    cteFt_map = np.full((H,W,S), np.nan, dtype = np.float32)
     criterion = nn.MSELoss()
 
     start_time = time.time()
 
     for z in tqdm(range(S), desc = "slices"):
-        signal_slice = signal[:,:,z,0:7]
+        sig_slice = signal[:,:,z,:]
         R2_slice = R2_map[:,:,z]
         Bvf_slice = Bvf_map[:,:,z]
-        mask_slice = mask[:,:,z]
 
-        indices = np.where(mask_slice)
-        i_list, j_list = indices
+        valid_mask = (np.isfinite(R2_slice) & np.isfinite(Bvf_slice) & np.all(np.isfinite(sig_slice), axis=2))
+        idxs = np.argwhere(valid_mask)
 
-        for idx in range(len(i_list)):
-            i = i_list[idx]
-            j = j_list[idx]
+        for (i, j) in idxs:
+            sig_val = sig_slice[i, j, :].astype(np.float32)
+            R2_val = float(R2_slice[i, j])
+            BVf_val = float(Bvf_slice[i, j])
 
-            signal_val = torch.tensor(signal_slice[i, j, :], dtype=torch.float32, device=device)
-            R2_val = torch.tensor(R2_slice[i, j], dtype=torch.float32, device=device)
-            BVf_val = torch.tensor(Bvf_slice[i, j], dtype=torch.float32, device=device)
+            sig_tensor = torch.tensor(sig_val, dtype=torch.float32, device=device)
+            R2_tensor = torch.tensor(R2_val, dtype=torch.float32, device=device)
+            BVf_tensor = torch.tensor(BVf_val, dtype=torch.float32, device=device)
 
-            # 파라미터 초기화
-            cteFt = torch.tensor([1000.0], dtype=torch.float32, requires_grad=True, device=device)
-            so2 = torch.tensor([0.9], dtype=torch.float32, requires_grad=True, device=device)
-            optimizer = optim.LBFGS([cteFt, so2], lr=LEARNING_RATE, max_iter=max_iter, line_search_fn="strong_wolfe") #strong_wolfe -> step마다 lr수정
+            # parameter initialize
+            cteFt_init = torch.tensor([1000.0], dtype=torch.float32, requires_grad=True, device=device)
+            so2_init = torch.tensor([0.90], dtype=torch.float32, requires_grad=True, device=device)
+            optimizer = optim.LBFGS([cteFt_init, so2_init], lr=LEARNING_RATE, max_iter=max_iter, line_search_fn="strong_wolfe") #strong_wolfe -> step마다 lr수정
 
             def closure():
                 optimizer.zero_grad()
-                pred_s = cteFt * torch.exp(-R2_val * TE_sec - BVf_val * const * (1 - so2) * TE_sec)
-                loss = criterion(pred_s, signal_val)
+                cteFt = torch.tensor
+                so2 = torch.clamp(so2_init, 0.40, 0.85)
+                pred_s = cteFt * torch.exp(-R2_tensor * TE_tensor - BVf_tensor * const * (1.0 - so2) * TE_tensor)
+                loss = criterion(pred_s, sig_tensor)
                 loss.backward()
+
                 return loss
 
             optimizer.step(closure)
+            with torch.no_grad():
+                
 
             # 값 저장
             cteFt_map[i, j, z] = cteFt.detach()
