@@ -9,14 +9,22 @@ from scipy.ndimage import gaussian_filter
 from skimage import morphology
 import tqdm
 
-def compute_so2_map(MEgre_data, TE_values_ms, R2_map, BVf_map,
-                           B0=3.0, delta_chi0=0.264e-6, Hct=0.34, gamma=2.675e8):
+## constant 
+B0=3.0
+delta_chi0=0.264e-6
+Hct=0.34
+gamma=2.675e8
 
-    H, W, S, E = MEgre_data.shape
-    TE_sec = np.array(TE_values_ms) / 1000  # convert to seconds
 
-    so2_map = np.zeros((H, W, S), dtype=np.float32)
-    cteFt_map = np.zeros((H, W, S), dtype=np.float32)
+def compute_so2_map(sig, R2_map, BVf_map, TE):
+
+    signal = sig[:,:,:,0:7]
+
+    H, W, S, E = signal.shape
+    TE_sec = np.array(TE) / 1000  # convert to seconds
+
+    so2_map = np.full((H, W, S), dtype=np.float32)
+    cteFt_map = np.full((H, W, S), dtype=np.float32)
 
     const = (gamma * (4 / 3) * np.pi * delta_chi0 * Hct * B0)
 
@@ -102,7 +110,14 @@ def data_load(R2_dir, Bvf_dir, signal_dir):
 
     return R2_masked, Bvf_masked, signal_masked
 
+## So2 visualizes
 
-so2_map, cteFt_map = compute_so2_map(signal[:,:,:,0:7], TE_list_t2star, preR2_map, BVf_map,
-                    B0=3.0, delta_chi0=0.264e-6, Hct=0.34, gamma=2.675e8)
 
+if __name__ == "__main__"
+    TE = np.array([2,12,22,32,42,52,62]) # ms
+    R2_dir = ""
+    Bvf_dir = ""
+    signal_dir = ""
+
+    R2_masked, Bvf_masked, signal_masked = data_load(R2_dir, Bvf_dir, signal_dir)
+    so2_map, cteFt_map = compute_so2_map(signal_masked, TE, R2_masked, Bvf_masked, B0=3.0, delta_chi0=0.264e-6, Hct=0.34, gamma=2.675e8)
