@@ -19,6 +19,7 @@ delta_chi0=0.264e-6
 Hct=0.34
 gamma=2.675e8
 max_iter = 500 
+LEARNING_RATE = 1e-4
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"using device: {device}")
@@ -58,7 +59,7 @@ def compute_so2_map(sig, R2_map, Bvf_map, TE):
             # 파라미터 초기화
             cteFt = torch.tensor([1000.0], dtype=torch.float32, requires_grad=True, device=device)
             so2 = torch.tensor([0.9], dtype=torch.float32, requires_grad=True, device=device)
-            optimizer = optim.LBFGS([cteFt, so2], lr=1e-5, max_iter=max_iter, line_search_fn="strong_wolfe") #strong_wolfe -> step마다 lr수정
+            optimizer = optim.LBFGS([cteFt, so2], lr=LEARNING_RATE, max_iter=max_iter, line_search_fn="strong_wolfe") #strong_wolfe -> step마다 lr수정
 
             def closure():
                 optimizer.zero_grad()
@@ -158,7 +159,7 @@ if __name__ == "__main__":
     r2_dir = r"C:\Users\user\Desktop\assistant\my_project\processed_data\test_data\07511225YDS\07511225YDS_R2_map.nii"
     bvf_dir = r"C:\Users\user\Desktop\assistant\my_project\processed_data\test_data\07511225YDS\07511225YDS_Bvf_map.nii"
     signal_dir = r"C:\Users\user\Desktop\assistant\my_project\processed_data\test_data\07511225YDS\07511225_YDS_VSI15_WIP_iadVSI05b_pre7meGRE_9_1.nii"
-    R2_map, Bvf_map, signal, mask = load_data(r2_dir, bvf_dir, signal_dir, slice_idx=[10,24,36])
 
-    so2_map, cteFt_map = compute_so2_map(signal, TE, R2_map, Bvf_map, mask)
+    R2_masked, Bvf_masked, signal_masked = load_data(r2_dir, bvf_dir, signal_dir)
+    so2_map, cteFt_map = compute_so2_map(signal_masked, R2_masked, Bvf_masked, TE)
     So2_visualize(so2_map)
