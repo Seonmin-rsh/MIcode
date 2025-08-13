@@ -24,16 +24,16 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"using device: {device}")
 
 ## LBFGS or Adam
-def compute_so2_map(signal, R2_map, Bvf_map, TE):
+def compute_so2_map(sig, R2_map, Bvf_map, TE):
 
-    H, W ,S, E = signal.shape #(512,512,3,7)
+    signal = np.mean(sig, axis=3)
+    H, W ,S = signal.shape #(512,512,3)
     TE = torch.tensor(TE, dtype=torch.float32).to(device) / 1000 # second
 
     const = gamma * (4 / 3) * np.pi * delta_chi0 * Hct * B0
 
     so2_map = torch.zeros((H, W, S), dtype=torch.float32)
     cteFt_map = torch.zeros((H, W, S), dtype=torch.float32)
-
     criterion = nn.MSELoss()
 
     start_time = time.time()
@@ -120,13 +120,12 @@ def keep_largest_component(binary_mask):
     return final_mask
 
 ## data load
-def load_data(r2_dir, bvf_dir, signal_dir, slice_idx = [10,24,36]):
+def load_data(r2_dir, bvf_dir, signal_dir):
     R2_map = nib.load(r2_dir).get_fdata() #(512,512,3)
     Bvf_map = nib.load(bvf_dir).get_fdata()
     signal = nib.load(signal_dir).get_fdata() #(512,512,45,16)
-    signal = signal[:, :, slice_idx, 0:7] 
 
-    brain_mask = create_mask(signal, slice_idx=None, erosion_iterations = 2, dilation_iterations = 2)
+    brain_mask = create_mask(signal, slice_idx=[10, 24, 36], erosion_iterations = 2, dilation_iterations = 2)
 
     R2_masked = np.where(brain_mask, R2_map, np.nan)
     Bvf_masked = np.where(brain_mask, Bvf_map, np.nan)
