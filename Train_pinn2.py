@@ -35,7 +35,7 @@ HCT = 0.34
 B0 = 3.0  # Tesla
 
 ## Hyperparameters
-EPOCHS = 100
+EPOCHS = 50
 BATCH_SIZE = 256 # pixel로 batch 설정
 LEARNING_RATE = 5e-3
 
@@ -57,9 +57,7 @@ class PINN(nn.Module):
             nn.Tanh(),
             nn.Linear(64, 64),
             nn.Tanh(),
-            nn.Linear(64, 32),
-            nn.Tanh(),
-            nn.Linear(32, 2)
+            nn.Linear(64, 2)
         )
         self.sigmoid = nn.Sigmoid()
         self.softplus = nn.Softplus()

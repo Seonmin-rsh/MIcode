@@ -101,21 +101,26 @@ def load_all_patients(patients, TE, slice_idx=[10,24,36]):
 # 시각화
 def visualize_so2_slices_by_patient(SO2_pred_flat, mask, shape, slice_idx, save_path, pid, nii_affine):
     H, W, S = shape
-    so2_map = np.zeros((H,W,S), dtype=np.float32)
-    so2_map[mask] = SO2_pred_flat.squeeze()
-    fig, axes = plt.subplots(1, len(slice_idx), figsize=(5*len(slice_idx),5))
+    so2_map = np.zeros((H, W, S), dtype=np.float32)
+
+    # 1) SO₂를 %로 변환
+    so2_map[mask] = SO2_pred_flat.squeeze() * 100  
+
+    fig, axes = plt.subplots(1, len(slice_idx), figsize=(5*len(slice_idx), 5))
     for i, s in enumerate(slice_idx):
-        im = axes[i].imshow(so2_map[:,:,s], cmap='hot', vmin=0, vmax=1)
+        im = axes[i].imshow(so2_map[:, :, s], cmap='hot', vmin=0, vmax=100)  # 2) vmin/vmax를 % 기준으로
         axes[i].axis('off')
         axes[i].set_title(f"Slice {s}")
-    fig.suptitle(f"SO2 Map for {pid}")
-    fig.colorbar(im, ax=axes, orientation='vertical', shrink=0.7)
+    fig.suptitle(f"SO2 Map for {pid} (%)")
+    fig.colorbar(im, ax=axes, orientation='vertical', shrink=0.7, label='SO₂ (%)')
+
     plt.savefig(os.path.join(save_path, f"{pid}_so2_map.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # ─── 추가: NIfTI 저장
+    # ─── NIfTI 저장 (값은 %)
     nii_img = nib.Nifti1Image(so2_map, affine=nii_affine)
     nib.save(nii_img, os.path.join(save_path, f"{pid}_so2_map.nii"))
+
 
 #--------------------------------------------------------
 if __name__=="__main__":
