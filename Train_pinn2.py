@@ -37,7 +37,7 @@ B0 = 3.0  # Tesla
 ## Hyperparameters
 EPOCHS = 50
 BATCH_SIZE = 256 # pixel로 batch 설정
-LEARNING_RATE = 5e-3
+LEARNING_RATE = 3e-4
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device : {device}")
@@ -62,17 +62,20 @@ class PINN(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.softplus = nn.Softplus()
 
-        # SO2 범위
-        self.so2_L = 0.40
-        self.so2_U = 0.85
+        # # SO2 범위
+        # self.so2_L = 0.40
+        # self.so2_U = 0.85
 
     def forward(self, R2, BVf, TE):
         x = torch.cat([R2, BVf], dim=1)
         params_raw = self.layers(x)
 
-        # scaled sigmoid: [0.40, 0.85]
-        SO2 = self.so2_L + (self.so2_U - self.so2_L) * self.sigmoid(params_raw[:, 0:1])
+        SO2 = self.sigmoid(params_raw[:, 0:1])
         CteFt = self.softplus(params_raw[:, 1:2])
+
+        # # scaled sigmoid: [0.40, 0.85]
+        # SO2 = self.so2_L + (self.so2_U - self.so2_L) * self.sigmoid(params_raw[:, 0:1])
+        # CteFt = self.softplus(params_raw[:, 1:2])
 
         if TE.ndim == 1:
             TE = TE.unsqueeze(0).repeat(R2.shape[0], 1)
@@ -83,15 +86,6 @@ class PINN(nn.Module):
         return pred_s, SO2, CteFt
 
 #---------------------------------------------------------
-# masking image -> main modification
-# def otsu_mask(image_4d):
-#     image = np.mean(image_4d, axis=3)
-#     mask  = np.zeros_like(image, dtype=bool)
-#     for s in range(image.shape[2]):
-#         thr = threshold_otsu(image[:,:,s])
-#         mask[:,:,s] = image[:,:,s] > thr
-#     return mask
-
 def create_mask(original_signal, slice_idx=[10,24,36], erosion_iterations = 2, dilation_iterations = 2):
     # FIX: original_signal은 pre7meGRE 4D 전체로 받고, 여기서 슬라이스+TE(0:7)를 선택
     if original_signal.ndim == 3:
