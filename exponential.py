@@ -72,23 +72,9 @@ def data_load(R2_dir, Bvf_dir, signal_dir, slice_idx=[10, 24, 36]):
     sig_sel = signal[:, :, slice_idx, :]   # (H,W,Z,E)
     mask = create_mask(signal, slice_idx=slice_idx, erosion_iterations=2, dilation_iterations=2)  # (H,W,Z)
 
-    # 슬라이스 차원 Z를 기준으로 R2/BVf를 정렬
-    H, W, Z, E = sig_sel.shape
-
-    # R2_map, BVf_map이 (H,W,Z)일 수도 있고 (H,W)일 수도 있어서 케이스 분기
-    if R2_map.ndim == 2:
-        R2_sel = np.repeat(R2_map[:, :, None], Z, axis=2)
-    else:
-        R2_sel = R2_map[:, :, slice_idx]  # (H,W,Z)
-
-    if BVf_map.ndim == 2:
-        BVf_sel = np.repeat(BVf_map[:, :, None], Z, axis=2)
-    else:
-        BVf_sel = BVf_map[:, :, slice_idx]  # (H,W,Z)
-
     # 마스크 적용 (마스크 밖은 NaN)
-    R2_masked = np.where(mask, R2_sel, np.nan)                # (H,W,Z)
-    BVf_masked = np.where(mask, BVf_sel, np.nan)              # (H,W,Z)
+    R2_masked = np.where(mask, R2_map, np.nan)                # (H,W,Z)
+    BVf_masked = np.where(mask, BVf_map, np.nan)              # (H,W,Z)
     signal_masked = np.where(mask[..., None], sig_sel, np.nan)  # (H,W,Z,E)
 
     return R2_masked, BVf_masked, signal_masked
