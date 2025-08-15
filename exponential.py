@@ -220,4 +220,4 @@ if __name__ == "__main__":
     )
 
     # (선택) 시각화
-    # visualize_so2_slices(so2_map, slice_titles=[str(s) for s in slice_idx])
+    visualize_so2_slices(so2_map, slice_titles=[str(s) for s in slice_idx])
