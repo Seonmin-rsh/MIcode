@@ -65,7 +65,7 @@ class PINN(nn.Module):
         # # SO2 범위
         # self.so2_L = 0.40
         # self.so2_U = 0.85
-
+    
     def forward(self, R2, BVf, TE):
         x = torch.cat([R2, BVf], dim=1)
         params_raw = self.layers(x)

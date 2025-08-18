@@ -207,3 +207,51 @@ if __name__ == "__main__":
 
     # (선택) 시각화
     visualize_so2_slices(so2_map, slice_titles=[str(s) for s in slice_idx])
+
+#-------------------------------------------------------------
+import matplotlib.pyplot as plt
+
+# ── 저장 경로 지정
+png_path = r"C:\Users\김하연\Desktop\Test\07511225YDS\so2_slice2.png"
+
+plt.figure(figsize=(5,5))
+im = plt.imshow(so2_map[:, :, 2] * 100, cmap='viridis', vmin=0, vmax=100)
+plt.title("Oxygen Saturation Map")
+plt.axis('off')
+plt.colorbar(im, label='SO2[%]')
+plt.savefig(png_path, dpi=300, bbox_inches='tight')  # ← 저장
+plt.show()
+
+##-------------------------------------------------------------------
+pred_s = cteFt_map[:,:,:,None]*np.exp(-R2_masked[:,:,:,None]*(TE_ms[None, None, None, :]/1000) \
+            -BVf_masked[:,:,:,None]/100*gamma*(4/3)*np.pi*delta_chi0*Hct*(1-so2_map[:,:,:,None])*B0*(TE_ms[None, None, None, :]/1000))
+
+MSE = (signal_for_fit - pred_s)**2           # (H,W,Z,E)
+mse_per_slice = np.nanmean(MSE, axis=(0, 1, 3))  # (Z,)  ← 슬라이스별 MSE
+mse_global    = float(np.nanmean(MSE))       # 스칼라 (전체 MSE)
+
+print("Per-slice MSE:", mse_per_slice)
+print("Global MSE   :", mse_global)
+
+for z, s in enumerate(slice_idx):
+    print(f"Slice {s} MSE: {mse_per_slice[z]}")
+
+
+##-----------------------------------------------------------------
+import os
+from datetime import datetime
+
+out_dir = r"C:\Users\김하연\Desktop\Test\07511225YDS"  # ← 저장할 폴더(디렉터리)
+os.makedirs(out_dir, exist_ok=True)                    # 폴더 없으면 생성
+
+ts = datetime.now().strftime("20250818")
+filename = f"MSE(YDS){ts}.txt"                      # ← 파일 이름
+txt_path = os.path.join(out_dir, filename)             # ← 폴더 + 파일이름 = 파일경로
+
+with open(txt_path, "w", encoding="utf-8") as f:
+    f.write("=== MSE Report ===\n")
+    for z, s in enumerate(slice_idx):
+        f.write(f"Slice {s}\t{float(mse_per_slice[z]):.6g}\n")
+    f.write(f"\nGlobal MSE\t{float(mse_global):.6g}\n")
+
+print("Saved ->", txt_path)
