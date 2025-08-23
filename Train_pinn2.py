@@ -53,11 +53,11 @@ class PINN(nn.Module):
         self.B0 = torch.tensor(B0)
 
         self.layers = nn.Sequential(
-            nn.Linear(2, 64),
+            nn.Linear(2, 128),
             nn.Tanh(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.Tanh(),
-            nn.Linear(64, 2)
+            nn.Linear(128, 2)
         )
         self.sigmoid = nn.Sigmoid()
         self.softplus = nn.Softplus()

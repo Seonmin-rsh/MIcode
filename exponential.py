@@ -154,7 +154,7 @@ def compute_so2_map(signal_masked, R2_masked, BVf_masked, TE_ms, intensity_thres
                     so2_map[i, j, z]   = np.float32(so2_fit)
                 except Exception:
                     # 실패 시 NaN 유지
-                    pass
+                    return np.nan
 
     return so2_map, cteFt_map
 
@@ -229,7 +229,7 @@ pred_s = cteFt_map[:,:,:,None]*np.exp(-R2_masked[:,:,:,None]*(TE_ms[None, None, 
 MSE = (signal_for_fit - pred_s)**2           # (H,W,Z,E)
 mse_per_slice = np.nanmean(MSE, axis=(0, 1, 3))  # (Z,)  ← 슬라이스별 MSE
 mse_global    = float(np.nanmean(MSE))       # 스칼라 (전체 MSE)
-
+    
 print("Per-slice MSE:", mse_per_slice)
 print("Global MSE   :", mse_global)
 
