@@ -1,0 +1,208 @@
+import numpy as np
+from scipy.optimize import curve_fit
+from skimage.transform import resize
+from tqdm import tqdm
+import nibabel as nib
+from skimage.filters import threshold_otsu
+from scipy.ndimage import binary_erosion, binary_dilation, binary_fill_holes
+from scipy.ndimage import gaussian_filter
+from skimage import morphology
+
+# -------------------------------
+# Constants
+# -------------------------------
+B0 = 3.0
+delta_chi0 = 0.264e-6
+Hct = 0.34
+gamma = 2.675e8
+
+
+# -------------------------------
+# Masking (그대로 사용하되 약간 보강)
+# -------------------------------
+def load_mask(mask_dir):
+    # 마스크 파일 로드
+    mask_data = nib.load(mask_dir).get_fdata().astype(bool)
+    
+    # 관심 슬라이스만 추출
+    if len(mask_data.shape) == 3:  # (H,W,S) 형태인 경우
+        mask = mask_data[:, :, :]  # (H,W,Z)
+    else:
+        raise ValueError(f"마스크 데이터의 차원이 예상과 다릅니다: {mask_data.shape}")
+    
+    return mask
+
+# -------------------------------
+# Data Load (+ masking 적용)
+# -------------------------------
+def data_load(R2_dir, Bvf_dir, signal_dir, , mask_dir, slice_idx=[10, 24, 36]):
+    R2_map = nib.load(R2_dir).get_fdata().astype(np.float32)        # 예상: (H,W,Z)
+    BVf_map = nib.load(Bvf_dir).get_fdata().astype(np.float32)      # 예상: (H,W,Z) 혹은 (H,W)
+    signal  = nib.load(signal_dir).get_fdata().astype(np.float32)   # (H,W,S,E)
+
+    # 관심 슬라이스만 추출(신호만), R2/BVf는 아래에서 마스크 시점에 크기 맞춰줌
+    sig_sel = signal[:, :, slice_idx, :]   # (H,W,Z,E)
+    mask = load_mask(mask_dir)  # (H,W,Z)
+
+    # 마스크 적용 (마스크 밖은 NaN)
+    R2_masked = np.where(mask, R2_map, np.nan)                # (H,W,Z)
+    BVf_masked = np.where(mask, BVf_map, np.nan)              # (H,W,Z)
+    signal_masked = np.where(mask[..., None], sig_sel, np.nan)  # (H,W,Z,E)
+
+    return R2_masked, BVf_masked, signal_masked
+
+# -------------------------------
+# Fitting (마스크 영역만, slice 루프)
+# -------------------------------
+def compute_so2_map(signal_masked, R2_masked, BVf_masked, TE_ms, intensity_threshold=30.0):
+    """
+    signal_masked: (H,W,Z,E) 마스크 밖은 NaN
+    R2_masked:     (H,W,Z)   [1/s]
+    BVf_masked:    (H,W,Z)   [unitless]
+    TE_ms:         list/array of Echo times [ms]
+    """
+    # Echo 0~6만 사용할 경우, 바깥에서 이미 슬라이싱해둔 상태라고 가정 (signal_masked[..., 0:7])
+    H, W, Z, E = signal_masked.shape
+    TE_sec = np.asarray(TE_ms, dtype=np.float64) / 1000.0
+    if len(TE_sec) != E:
+        raise ValueError(f"TE 길이({len(TE_sec)})와 echo 수({E})가 다릅니다.")
+
+    # 출력 초기화 (NaN으로 채움)
+    so2_map = np.full((H, W, Z), np.nan, dtype=np.float32)
+    cteFt_map = np.full((H, W, Z), np.nan, dtype=np.float32)
+
+    # 상수 (감마 등)
+    CONST = (gamma * (4.0/3.0) * np.pi * delta_chi0 * Hct * B0)
+
+    # 슬라이스 루프
+    for z in tqdm(range(Z), desc="Slice"):
+        # 현재 슬라이스 2D
+        R2_z  = R2_masked[:, :, z]
+        BVf_z = BVf_masked[:, :, z]
+        Sig_z = signal_masked[:, :, z, :]  # (H,W,E)
+
+        # 픽셀 루프
+        for i in range(H):
+            r2_row = R2_z[i]
+            bv_row = BVf_z[i]
+            sig_row = Sig_z[i]  # (W,E)
+
+            for j in range(W):
+                vox = sig_row[j].astype(np.float64)  # (E,)
+                r2  = r2_row[j]
+                bv  = bv_row[j]
+
+                # 마스크 밖(NaN) 또는 유효하지 않은 경우 스킵
+                if (not np.isfinite(r2)) or (not np.isfinite(bv)):
+                    continue
+                if (not np.all(np.isfinite(vox))):
+                    continue
+                if vox[0] <= intensity_threshold:
+                    continue
+
+                # x_data 구성: [R2, TE, BVf]
+                x_data = np.stack([
+                    np.full(E, r2, dtype=np.float64),
+                    TE_sec,
+                    np.full(E, bv, dtype=np.float64)
+                ], axis=1)  # (E,3)
+
+                # 모델: C * exp( -R2*TE - BVf*CONST*(1 - so2)*TE )
+                def model_func(x, C, so2):
+                    r2_term   = -x[:, 0] * x[:, 1]
+                    susc_term = -x[:, 2] * CONST * (1.0 - so2) * x[:, 1]
+                    return C * np.exp(r2_term + susc_term)
+
+                # 초기값/경계
+                C0 = float(np.nanmax(vox))  # 첫 에코/최대값 사용
+                C0 = 1.0 if not np.isfinite(C0) or C0 <= 0 else C0
+                p0 = (C0, 0.9)
+                bounds = ([0.0, 0.0], [1e4, 1.0])
+
+                try:
+                    popt, _ = curve_fit(model_func, x_data, vox, p0=p0, bounds=bounds, maxfev=10000)
+                    C_fit, so2_fit = popt
+                    cteFt_map[i, j, z] = np.float32(C_fit)
+                    so2_map[i, j, z]   = np.float32(so2_fit)
+                except Exception:
+                    # 실패 시 NaN 유지
+                    return np.nan
+
+    return so2_map, cteFt_map
+
+# -------------------------------
+# main 실행
+# -------------------------------
+if __name__ == "__main__":
+    # 예시 세팅
+    TE_ms = np.array([2, 12, 22, 32, 42, 52, 62], dtype=np.float32)  # ms
+    slice_idx = [10, 24, 36]
+
+    R2_dir = r"...\R2_map.nii.gz"
+    Bvf_dir = r"...\BVf_map.nii.gz"
+    signal_dir = r"...\pre7meGRE.nii.gz"   # (H,W,S,E=16) 같은 형태
+
+    # 로드 + 마스킹 (관심 슬라이스만)
+    R2_masked, BVf_masked, signal_masked = data_load(
+        R2_dir, Bvf_dir, signal_dir, slice_idx=slice_idx
+    )
+
+    # Echo 0~6만 사용해서 fitting (signal_masked는 전체 E를 갖고 있으므로 여기서 슬라이싱)
+    signal_for_fit = signal_masked[..., 0:7]  # (H,W,Z,7)
+
+    # Fitting
+    so2_map, cteFt_map = compute_so2_map(
+        signal_for_fit,
+        R2_masked,
+        BVf_masked,
+        TE_ms,
+        intensity_threshold=30.0
+    )
+
+#-------------------------------------------------------------
+import matplotlib.pyplot as plt
+
+# ── 저장 경로 지정
+png_path = r"C:\Users\김하연\Desktop\Test\07511225YDS\so2_slice2.png"
+
+plt.figure(figsize=(5,5))
+im = plt.imshow(so2_map[:, :, 2] * 100, cmap='viridis', vmin=0, vmax=100)
+plt.title("Oxygen Saturation Map")
+plt.axis('off')
+plt.colorbar(im, label='SO2[%]')
+plt.savefig(png_path, dpi=300, bbox_inches='tight')  # ← 저장
+plt.show()
+
+##-------------------------------------------------------------------
+pred_s = cteFt_map[:,:,:,None]*np.exp(-R2_masked[:,:,:,None]*(TE_ms[None, None, None, :]/1000) \
+            -BVf_masked[:,:,:,None]/100*gamma*(4/3)*np.pi*delta_chi0*Hct*(1-so2_map[:,:,:,None])*B0*(TE_ms[None, None, None, :]/1000))
+
+MSE = (signal_for_fit - pred_s)**2           # (H,W,Z,E)
+mse_per_slice = np.nanmean(MSE, axis=(0, 1, 3))  # (Z,)  ← 슬라이스별 MSE
+mse_global    = float(np.nanmean(MSE))       # 스칼라 (전체 MSE)
+    
+print("Per-slice MSE:", mse_per_slice)
+print("Global MSE   :", mse_global)
+
+for z, s in enumerate(slice_idx):
+    print(f"Slice {s} MSE: {mse_per_slice[z]}")
+
+
+##-----------------------------------------------------------------
+import os
+from datetime import datetime
+
+out_dir = r"C:\Users\김하연\Desktop\Test\07511225YDS"  # ← 저장할 폴더(디렉터리)
+os.makedirs(out_dir, exist_ok=True)                    # 폴더 없으면 생성
+
+ts = datetime.now().strftime("20250818")
+filename = f"MSE(YDS){ts}.txt"                      # ← 파일 이름
+txt_path = os.path.join(out_dir, filename)             # ← 폴더 + 파일이름 = 파일경로
+
+with open(txt_path, "w", encoding="utf-8") as f:
+    f.write("=== MSE Report ===\n")
+    for z, s in enumerate(slice_idx):
+        f.write(f"Slice {s}\t{float(mse_per_slice[z]):.6g}\n")
+    f.write(f"\nGlobal MSE\t{float(mse_global):.6g}\n")
+
+print("Saved ->", txt_path)
