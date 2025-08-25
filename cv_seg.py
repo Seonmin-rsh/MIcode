@@ -35,7 +35,7 @@ def load_mask(mask_dir):
 # -------------------------------
 # Data Load (+ masking 적용)
 # -------------------------------
-def data_load(R2_dir, Bvf_dir, signal_dir, , mask_dir, slice_idx=[10, 24, 36]):
+def data_load(R2_dir, Bvf_dir, signal_dir, mask_dir, slice_idx=[10, 24, 36]):
     R2_map = nib.load(R2_dir).get_fdata().astype(np.float32)        # 예상: (H,W,Z)
     BVf_map = nib.load(Bvf_dir).get_fdata().astype(np.float32)      # 예상: (H,W,Z) 혹은 (H,W)
     signal  = nib.load(signal_dir).get_fdata().astype(np.float32)   # (H,W,S,E)
