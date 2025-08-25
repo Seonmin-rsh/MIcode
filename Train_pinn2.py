@@ -291,3 +291,5 @@ if __name__=="__main__":
     with open("label_encoder.pkl", "wb") as f:
         pickle.dump(le, f)
     print(" TRAIN DONE, model saved to pinn_trained_min2.pth")
+
+    'hi'
